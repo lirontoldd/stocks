@@ -58,7 +58,7 @@
 </style>
 </head>
 <body>
-<header><h1>StockPulse Live</h1><span><span id="fresh" style="color:var(--muted);font-size:.88rem;margin-inline-end:14px"></span><span id="status">לא מחובר</span></span></header>
+<header><h1>StockPulse Live</h1><span><span id="fresh" style="color:var(--muted);font-size:.88rem;margin-inline-end:14px"></span><span id="status">לא מחובר</span> <button class="btn" id="openSetup" type="button" style="margin-inline-start:12px;padding:4px 12px">הגדרות</button></span></header>
 <main>
   <div class="stack">
     <section class="setup" id="setup">
@@ -143,7 +143,7 @@ const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } cat
 const quotes = {};   // sym -> {price, pc, t}
 const sent = {};     // sym -> זמן התראה אחרון
 const alerts = [];
-let ws = null, pollTimer = null, reconnectTimer = null, lastOk = 0;
+let ws = null, pollTimer = null, reconnectTimer = null, lastOk = 0, showSetup = false;
 
 try { Object.assign(quotes, JSON.parse(localStorage.getItem(KEY + '_q') || '{}')); } catch (e) {}
 const saveQuotes = () => { try { localStorage.setItem(KEY + '_q', JSON.stringify(quotes)); } catch (e) {} };
@@ -227,7 +227,7 @@ async function checkAlert(sym) {
 
 // ───── תצוגה ─────
 function render() {
-  $('#setup').style.display = cfg.key && cfg.topic ? 'none' : '';
+  $('#setup').style.display = cfg.key && cfg.topic && !showSetup ? 'none' : '';
   $('#watch').innerHTML = cfg.watch.map(s => {
     const q = quotes[s]; if (!q) return `<tr><td class="sym-cell">${esc(s)}</td><td colspan="3" class="empty">טוען…</td><td><button class="linkbtn" data-wdel="${esc(s)}">הסר</button></td></tr>`;
     const p = pct(q), f = q.dir > 0 ? 'flash-up' : q.dir < 0 ? 'flash-down' : '';
@@ -262,8 +262,9 @@ $('#saveCfg').onclick = () => {
   cfg.key = $('#key').value.trim() || cfg.key; cfg.topic = $('#topic').value.trim() || cfg.topic;
   cfg.thr = parseFloat($('#thr').value) || 3; save();
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-  connect(); render();
+  showSetup = false; connect(); render();
 };
+$('#openSetup').onclick = () => { showSetup = true; render(); $('#setup').scrollIntoView({behavior:'smooth'}); };
 $('#testPush').onclick = async () => {
   cfg.topic = $('#topic').value.trim() || cfg.topic; save();
   const r = await push('StockPulse: הודעת בדיקה. ההתראות לנייד עובדות.');
