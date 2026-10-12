@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockPulse Live</title>
+<style>
+  :root { --bg:#E8EDF1; --panel:#F7F9FA; --ink:#16222C; --muted:#566673; --line:#C6D0D8; --row:#DDE4EA;
+          --up:#0B7F58; --down:#B8352A; --accent:#1F4B6E; --bubble:#E3EAF0; --warn:#F7E6BE; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Heebo","Segoe UI",Arial,system-ui,sans-serif; line-height:1.5; }
+  .num { font-variant-numeric: tabular-nums; direction:ltr; unicode-bidi:isolate; display:inline-block; }
+  .up { color:var(--up); } .down { color:var(--down); }
+  button { font:inherit; cursor:pointer; }
+  :focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 24px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:1.25rem; font-weight:800; }
+  #status { color:var(--muted); font-size:.9rem; }
+  #status::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; background:#999; margin-inline-end:8px; }
+  #status.live::before { background:var(--up); } #status.err::before { background:var(--down); }
+  main { max-width:1200px; margin:0 auto; padding:20px 24px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr) 360px; }
+  @media (max-width:900px){ main { grid-template-columns:1fr; padding:14px; } header{padding:12px 14px;} }
+  .stack { display:grid; gap:20px; align-content:start; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px 18px; }
+  h2 { margin:0 0 12px; font-size:1.05rem; }
+  .hint { color:var(--muted); font-size:.88rem; margin:-6px 0 12px; } .empty { color:var(--muted); margin:0; }
+  .setup { background:var(--warn); }
+  .champ { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:12px 28px; border-inline-start:6px solid var(--up); }
+  .champ .label { color:var(--muted); width:100%; margin:0; }
+  .champ .sym { font-size:3rem; font-weight:800; line-height:1; }
+  .champ .amt { font-size:1.6rem; font-weight:700; }
+  .champ .total { margin-inline-start:auto; text-align:end; color:var(--muted); } .champ .total strong { display:block; font-size:1.2rem; color:var(--ink); }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.95rem; }
+  th { text-align:start; font-weight:500; color:var(--muted); border-bottom:1px solid var(--line); padding:6px 8px; white-space:nowrap; }
+  td { padding:9px 8px; border-bottom:1px solid var(--row); } tr:last-child td { border-bottom:0; }
+  .sym-cell { font-weight:700; }
+  .flash-up { animation: fu .8s; } .flash-down { animation: fd .8s; }
+  @keyframes fu { from { background:#BFE9D6; } to { background:transparent; } }
+  @keyframes fd { from { background:#F2C6C1; } to { background:transparent; } }
+  @media (prefers-reduced-motion: reduce) { .flash-up,.flash-down { animation:none; } }
+  .linkbtn { background:none; border:0; color:var(--down); padding:4px 6px; }
+  form.add { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  label.f { display:block; margin:8px 0 2px; font-size:.9rem; color:var(--muted); }
+  input { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:4px; background:#fff; color:var(--ink); min-width:0; }
+  form.add input { flex:1 1 90px; } .full { width:100%; }
+  .btn { background:var(--accent); color:#fff; border:0; border-radius:4px; padding:8px 16px; font-weight:500; }
+  .chat { position:sticky; top:16px; }
+  #log { height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:4px 2px 10px; }
+  .msg { max-width:92%; padding:8px 12px; border-radius:8px; white-space:pre-wrap; font-size:.95rem; }
+  .msg.bot { background:var(--bubble); align-self:flex-start; } .msg.me { background:var(--accent); color:#fff; align-self:flex-end; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .chip { background:transparent; border:1px solid var(--line); border-radius:999px; padding:3px 12px; font-size:.85rem; color:var(--accent); }
+  .ask { display:flex; gap:8px; } .ask input { flex:1; }
+  .alert { border-top:1px solid var(--row); padding:8px 0; font-size:.9rem; } .alert:first-of-type { border-top:0; }
+  .alert small { color:var(--muted); display:block; }
+  .legal { max-width:1200px; margin:0 auto; padding:0 24px 24px; color:var(--muted); font-size:.8rem; }
+</style>
+</head>
+<body>
+<header><h1>StockPulse Live</h1><span><span id="fresh" style="color:var(--muted);font-size:.88rem;margin-inline-end:14px"></span><span id="status">לא מחובר</span></span></header>
+<main>
+  <div class="stack">
+    <section class="setup" id="setup">
+      <h2>הגדרה חד-פעמית</h2>
+      <p class="hint" style="margin-top:-4px">1) הירשם בחינם ב-finnhub.io והעתק את ה-API Key.  2) הדבק אותו כאן.</p>
+      <label class="f" for="key">מפתח Finnhub (למחירים חיים)</label>
+      <input class="full" id="key" placeholder="הדבק כאן את המפתח" autocomplete="off">
+      <label class="f" for="topic">שם ערוץ להתראות לנייד (המצא שם ארוך וייחודי, למשל stockpulse-dan-8472)</label>
+      <input class="full" id="topic" placeholder="שם ערוץ ב-ntfy" autocomplete="off">
+      <label class="f" for="thr">שלח התראה כשמניה זזה ביום ב-% או יותר</label>
+      <input id="thr" type="number" min="0.5" step="0.5" value="3">
+      <p style="margin:12px 0 0"><button class="btn" id="saveCfg" type="button">שמור והתחבר</button>
+      <button class="btn" id="testPush" type="button" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">שלח התראת בדיקה</button></p>
+      <p class="hint" style="margin:10px 0 0">בנייד: התקן את האפליקציה החינמית ntfy ועשה Subscribe לאותו שם ערוץ.</p>
+    </section>
+
+    <section class="champ" id="champ"></section>
+
+    <section>
+      <h2>רשימת מעקב (חי)</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>מניה</th><th>מחיר</th><th>שינוי היום</th><th>עדכון אחרון</th><th></th></tr></thead>
+        <tbody id="watch"></tbody>
+      </table></div>
+      <form class="add" id="stockForm">
+        <input id="sSym" placeholder="סימול להוספה, למשל AMD" required aria-label="סימול" autocomplete="off">
+        <button class="btn" type="submit">הוסף למעקב</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>התיק שלך</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>מניה</th><th>כמות</th><th>מחיר קנייה</th><th>מחיר</th><th>רווח / הפסד</th><th></th></tr></thead>
+        <tbody id="pf"></tbody>
+      </table></div>
+      <form class="add" id="addForm">
+        <input id="fSym" placeholder="סימול" required aria-label="סימול" autocomplete="off">
+        <input id="fShares" type="number" step="any" min="0" placeholder="כמות" required aria-label="כמות">
+        <input id="fBuy" type="number" step="any" min="0" placeholder="מחיר קנייה" required aria-label="מחיר קנייה">
+        <button class="btn" type="submit">הוסף לתיק</button>
+      </form>
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="chat">
+      <h2>הבוט</h2>
+      <div class="chips">
+        <button class="chip" data-q="במה כדאי להתעניין?">במה להתעניין?</button>
+        <button class="chip" data-q="איפה הרווחתי הכי הרבה?">איפה הרווחתי הכי הרבה?</button>
+        <button class="chip" data-q="מה כדאי למכור?">מה לשקול למכור?</button>
+      </div>
+      <div id="log" aria-live="polite"><div class="msg bot">שלום. אני מסתכל על המחירים החיים והתיק שלך. שאל אותי.</div></div>
+      <form class="ask" id="askForm">
+        <input id="q" placeholder="כתוב שאלה…" autocomplete="off" aria-label="שאלה לבוט">
+        <button class="btn" type="submit">שלח</button>
+      </form>
+    </section>
+    <section>
+      <h2>התראות שנשלחו</h2>
+      <p class="hint">ההתראות נשלחות רק כל עוד הדף הזה פתוח בדפדפן.</p>
+      <div id="alerts"><p class="empty">עדיין לא נשלחו התראות.</p></div>
+    </section>
+  </aside>
+</main>
+<p class="legal">המידע להמחשה בלבד ואינו ייעוץ השקעות. הבוט מסתמך על תנועת מחיר יומית ולא מבטיח רווח.</p>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d});
+const sgn = n => (n > 0 ? '+' : '') + fmt(n);
+const cls = n => n > 0 ? 'up' : n < 0 ? 'down' : '';
+const num = (t, c = '') => `<span class="num ${c}">${t}</span>`;
+const KEY = 'stockpulse_live_v1';
+
+let cfg = {key:'', topic:'', thr:3, watch:['AAPL','NVDA','MSFT','TSLA','AMZN','GOOGL','META'], portfolio:[]};
+try { Object.assign(cfg, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} };
+
+const quotes = {};   // sym -> {price, pc, t}
+const sent = {};     // sym -> זמן התראה אחרון
+const alerts = [];
+let ws = null, pollTimer = null, reconnectTimer = null, lastOk = 0;
+
+try { Object.assign(quotes, JSON.parse(localStorage.getItem(KEY + '_q') || '{}')); } catch (e) {}
+const saveQuotes = () => { try { localStorage.setItem(KEY + '_q', JSON.stringify(quotes)); } catch (e) {} };
+const pct = q => q && q.pc ? (q.price / q.pc - 1) * 100 : 0;
+
+function setStatus(text, kind) { const s = $('#status'); s.textContent = text; s.className = kind || ''; }
+
+async function fetchQuote(sym) {
+  const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(cfg.key)}`);
+  if (r.status === 401 || r.status === 403) throw new Error('auth');
+  if (r.status === 429) throw new Error('rate');
+  const d = await r.json();
+  if (d && d.c) { const prev = quotes[sym]; quotes[sym] = {price:d.c, pc:d.pc, t:d.t ? d.t * 1000 : Date.now(), dir: prev ? Math.sign(d.c - prev.price) : 0}; checkAlert(sym); saveQuotes(); }
+}
+async function pollAll() {
+  const syms = [...new Set(cfg.watch.concat(cfg.portfolio.map(p => p.symbol)))];
+  let err = null;
+  await Promise.all(syms.map(s => fetchQuote(s).then(() => { lastOk = Date.now(); setStatus('מחובר · מתעדכן', 'live'); render(); }).catch(e => { err = e; })));
+  if (err && !lastOk) setStatus(err.message === 'auth' ? 'המפתח לא תקין' : err.message === 'rate' ? 'יותר מדי בקשות, ממתין' : 'אין חיבור לאינטרנט', 'err');
+}
+function connect() {
+  clearTimeout(reconnectTimer);
+  if (ws) { ws.onclose = null; try { ws.close(); } catch (e) {} }
+  clearInterval(pollTimer);
+  if (!cfg.key) { setStatus('חסר מפתח', 'err'); return; }
+  const syms = [...new Set(cfg.watch.concat(cfg.portfolio.map(p => p.symbol)))];
+  pollAll();
+  pollTimer = setInterval(pollAll, Math.max(10000, syms.length * 1100));   // עד ~55 בקשות בדקה, מתחת למגבלה החינמית
+  ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(cfg.key));
+  ws.onopen = () => syms.forEach(s => ws.send(JSON.stringify({type:'subscribe', symbol:s})));
+  ws.onclose = () => { reconnectTimer = setTimeout(connect, 5000); };   // חיבור מחדש אוטומטי
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type !== 'trade') return;
+    lastOk = Date.now();
+    m.data.forEach(tr => {
+      const q = quotes[tr.s]; if (!q) return;
+      q.dir = Math.sign(tr.p - q.price); q.price = tr.p; q.t = tr.t;
+    });
+    m.data.forEach(tr => checkAlert(tr.s));
+    render();
+  };
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cfg.key) { pollAll(); } });
+
+function marketOpen() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone:'America/New_York', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false}).formatToParts(new Date()).map(x => [x.type, x.value]));
+  const m = (+p.hour % 24) * 60 + +p.minute;
+  return !['Sat', 'Sun'].includes(p.weekday) && m >= 570 && m < 960;
+}
+setInterval(() => {
+  if (!lastOk) { $('#fresh').textContent = ''; return; }
+  const sec = Math.round((Date.now() - lastOk) / 1000);
+  $('#fresh').textContent = (marketOpen() ? 'השוק פתוח' : 'השוק סגור, המחיר הוא סגירה אחרונה') + ' · עודכן לפני ' + sec + ' שנ׳';
+}, 1000);
+
+// ───── התראות ─────
+function describe(sym, p) {
+  const held = cfg.portfolio.some(x => x.symbol === sym);
+  if (p <= -cfg.thr) return held ? `${sym} בתיק שלך ירדה ${fmt(Math.abs(p))}% היום. כדאי לבדוק למה.` : `${sym} ירדה ${fmt(Math.abs(p))}% היום. ייתכן שזו הזדמנות, ייתכן שזה סימן אזהרה. כדאי לבדוק חדשות.`;
+  if (p >= cfg.thr) return `${sym} זינקה ${fmt(p)}% היום${held ? ' (מניה בתיק שלך)' : ''}.`;
+  return null;
+}
+async function push(text) {
+  if (!cfg.topic) return {ok:false, info:'לא הוגדר שם ערוץ'};
+  try {
+    const r = await fetch('https://ntfy.sh/' + encodeURIComponent(cfg.topic), {method:'POST', body:text});
+    return {ok:r.ok, info:r.ok ? 'נשלח' : 'שגיאה ' + r.status};
+  } catch (e) { return {ok:false, info:'אין חיבור'}; }
+}
+async function checkAlert(sym) {
+  const q = quotes[sym]; if (!q) return;
+  const text = describe(sym, pct(q)); if (!text) return;
+  if (Date.now() - (sent[sym] || 0) < 6 * 3600 * 1000) return;
+  sent[sym] = Date.now();
+  const res = await push('StockPulse: ' + text + ' מחיר ' + fmt(q.price) + '. לא ייעוץ השקעות.');
+  if ('Notification' in window && Notification.permission === 'granted') new Notification('StockPulse', {body:text});
+  alerts.unshift({time:new Date().toLocaleTimeString('he-IL'), text, ...res}); alerts.length = Math.min(alerts.length, 20);
+  renderAlerts();
+}
+
+// ───── תצוגה ─────
+function render() {
+  $('#setup').style.display = cfg.key && cfg.topic ? 'none' : '';
+  $('#watch').innerHTML = cfg.watch.map(s => {
+    const q = quotes[s]; if (!q) return `<tr><td class="sym-cell">${esc(s)}</td><td colspan="3" class="empty">טוען…</td><td><button class="linkbtn" data-wdel="${esc(s)}">הסר</button></td></tr>`;
+    const p = pct(q), f = q.dir > 0 ? 'flash-up' : q.dir < 0 ? 'flash-down' : '';
+    q.dir = 0;
+    return `<tr class="${f}"><td class="sym-cell">${esc(s)}</td><td>${num(fmt(q.price))}</td><td>${num(sgn(p) + '%', cls(p))}</td>
+      <td>${new Date(q.t).toLocaleTimeString('he-IL')}</td><td><button class="linkbtn" data-wdel="${esc(s)}" aria-label="הסר ${esc(s)}">הסר</button></td></tr>`;
+  }).join('');
+
+  const pos = cfg.portfolio.map(p => { const q = quotes[p.symbol]; return q ? {...p, px:q.price, pnl:(q.price - p.buy) * p.shares, pc:(q.price / p.buy - 1) * 100} : null; });
+  const live = pos.filter(Boolean);
+  const best = live.reduce((a, b) => (!a || b.pnl > a.pnl ? b : a), null);
+  const total = live.reduce((t, p) => t + p.pnl, 0);
+  $('#champ').style.borderInlineStartColor = best && best.pnl < 0 ? 'var(--down)' : 'var(--up)';
+  $('#champ').innerHTML = best
+    ? `<p class="label">המניה שהכניסה לך הכי הרבה</p><span class="sym">${esc(best.symbol)}</span>
+       <span class="amt">${num(sgn(best.pnl), cls(best.pnl))} <small>(${num(sgn(best.pc) + '%', cls(best.pc))})</small></span>
+       <span class="total">סך הכל בתיק<strong>${num(sgn(total), cls(total))}</strong></span>`
+    : `<p class="label">המניה שהכניסה לך הכי הרבה</p><p class="empty">הוסף מניה לתיק עם כמות ומחיר קנייה.</p>`;
+
+  $('#pf').innerHTML = cfg.portfolio.length ? cfg.portfolio.map((p, i) => { const x = pos[i];
+    return `<tr><td class="sym-cell">${esc(p.symbol)}</td><td>${num(fmt(p.shares, 0))}</td><td>${num(fmt(p.buy))}</td>
+      <td>${x ? num(fmt(x.px)) : '–'}</td><td>${x ? num(sgn(x.pnl) + ' (' + sgn(x.pc) + '%)', cls(x.pnl)) : '–'}</td>
+      <td><button class="linkbtn" data-pdel="${i}" aria-label="הסר ${esc(p.symbol)}">הסר</button></td></tr>`; }).join('')
+    : '<tr><td colspan="6" class="empty">התיק ריק.</td></tr>';
+}
+function renderAlerts() {
+  $('#alerts').innerHTML = alerts.map(a => `<div class="alert">${esc(a.text)}<small>${esc(a.time)} · ${a.ok ? 'נשלח לנייד' : 'לא נשלח: ' + esc(a.info)}</small></div>`).join('');
+}
+
+// ───── אירועים ─────
+$('#saveCfg').onclick = () => {
+  cfg.key = $('#key').value.trim() || cfg.key; cfg.topic = $('#topic').value.trim() || cfg.topic;
+  cfg.thr = parseFloat($('#thr').value) || 3; save();
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  connect(); render();
+};
+$('#testPush').onclick = async () => {
+  cfg.topic = $('#topic').value.trim() || cfg.topic; save();
+  const r = await push('StockPulse: הודעת בדיקה. ההתראות לנייד עובדות.');
+  say(r.ok ? 'הודעת בדיקה נשלחה. בדוק את אפליקציית ntfy בנייד.' : 'השליחה נכשלה: ' + r.info, 'bot');
+};
+$('#stockForm').onsubmit = e => { e.preventDefault(); const s = $('#sSym').value.trim().toUpperCase();
+  if (s && !cfg.watch.includes(s)) { cfg.watch.push(s); save(); connect(); } e.target.reset(); };
+$('#addForm').onsubmit = e => { e.preventDefault();
+  const symbol = $('#fSym').value.trim().toUpperCase(), shares = parseFloat($('#fShares').value), buy = parseFloat($('#fBuy').value);
+  if (symbol && shares > 0 && buy > 0) { cfg.portfolio.push({symbol, shares, buy}); save(); connect(); } e.target.reset(); };
+$('#watch').onclick = e => { const s = e.target.dataset.wdel; if (s) { cfg.watch = cfg.watch.filter(x => x !== s); delete quotes[s]; save(); render(); } };
+$('#pf').onclick = e => { const i = e.target.dataset.pdel; if (i !== undefined) { cfg.portfolio.splice(+i, 1); save(); render(); } };
+
+// ───── הבוט (כללים על תנועת המחיר החיה) ─────
+function say(t, who) { const d = document.createElement('div'); d.className = 'msg ' + who; d.textContent = t; $('#log').appendChild(d); $('#log').scrollTop = $('#log').scrollHeight; }
+function answer(q) {
+  const all = Object.entries(quotes).map(([s, v]) => ({s, p:pct(v), px:v.price}));
+  if (!all.length) return 'עדיין אין נתונים. ודא שהזנת מפתח Finnhub ולחצת "שמור והתחבר".';
+  const tail = '\nזה אינו ייעוץ השקעות, והבוט מסתמך רק על תנועת המחיר היומית.';
+  if (/הרווחתי|רווח/.test(q)) {
+    const live = cfg.portfolio.map(p => quotes[p.symbol] ? {s:p.symbol, pnl:(quotes[p.symbol].price - p.buy) * p.shares} : null).filter(Boolean);
+    if (!live.length) return 'התיק ריק. הוסף מניה עם כמות ומחיר קנייה.';
+    const b = live.reduce((a, c) => c.pnl > a.pnl ? c : a);
+    return `המניה שהכניסה הכי הרבה: ${b.s} (${sgn(b.pnl)}). סך הכל בתיק: ${sgn(live.reduce((t, x) => t + x.pnl, 0))}.`;
+  }
+  if (/מכור|למכור|מכירה/.test(q)) {
+    const bad = cfg.portfolio.map(p => ({s:p.symbol, q:quotes[p.symbol]})).filter(x => x.q && (pct(x.q) <= -cfg.thr || x.q.price < cfg.portfolio.find(p => p.symbol === x.s).buy * 0.9));
+    return (bad.length ? 'כדאי לבדוק: ' + bad.map(x => `${x.s} (${sgn(pct(x.q))}% היום)`).join(', ') + '. אלה מניות בתיק שירדו חזק היום או נמצאות יותר מ-10% מתחת למחיר הקנייה.'
+                       : 'אין כרגע מניה בתיק עם סימן ירידה חריג.') + tail;
+  }
+  const drops = all.filter(x => x.p <= -cfg.thr).sort((a, b) => a.p - b.p), jumps = all.filter(x => x.p >= cfg.thr).sort((a, b) => b.p - a.p);
+  let out = '';
+  if (drops.length) out += 'ירדו חזק היום (אולי הזדמנות, אולי אזהרה):\n' + drops.map(x => `• ${x.s} ${sgn(x.p)}%`).join('\n') + '\n';
+  if (jumps.length) out += 'זינקו היום (מומנטום, אבל יש סיכון לקנות בשיא):\n' + jumps.map(x => `• ${x.s} ${sgn(x.p)}%`).join('\n') + '\n';
+  return (out || 'אין כרגע תנועה חריגה ברשימה.') + tail;
+}
+function ask(q) { say(q, 'me'); say(answer(q), 'bot'); }
+$('#askForm').onsubmit = e => { e.preventDefault(); const v = $('#q').value.trim(); if (v) { $('#q').value = ''; ask(v); } };
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => ask(c.dataset.q));
+
+$('#key').value = cfg.key; $('#topic').value = cfg.topic; $('#thr').value = cfg.thr;
+render(); connect();
+</script>
+</body>
+</html>
